@@ -7,18 +7,20 @@ Data prep for the CytoData hackathon at SBI2 (Nov 1-2 2026): Biohub's "Altair - 
 - A549, inducible Cas9, 1,000-gene KO library (4 sgRNAs/gene + 211 NTCs). Guide identity via in situ sequencing.
 - Public bucket `s3://ops-explorer-public/leonetti_ops/ops_data_portal_submission/` (anonymous HTTPS listing). Use `v2.0.20260724`: 88 per-screen datasets `Biohub_OPS0001..0088`.
 - Each screen is its own set of cells: Phase2D + 0-2 live markers. Marker names live in the plate `zarr.json` under `attributes.channels_metadata`, not in the generic channel labels (GFP/mCherry).
-- Multiplexed screens: OPS0043 and OPS0088 (Cell Painting, 7 stains, 2 cycles), OPS0077 (4i, 6 antibodies).
-- CROP-seq is a separate experiment; only perturbation-level h5ad is public. Imaging and RNA join on gene, never on cell.
+- Multiplexed screens: OPS0043 and OPS0088 (Cell Painting, 7 stains, 2 cycles), OPS0077 (4i, 10 antibodies). `screen_map.csv` maps `experiment` (ops0031...) to Biohub_OPS00xx.
+- CROP-seq is a separate experiment; only perturbation-level h5ad is public. Imaging and RNA join on guide sequence, never on cell.
+- A cell is (experiment, well, tile_pheno, segmentation_id). segmentation_id alone repeats across wells and adjacent tiles.
 - Analysis code: github.com/czbiohub-sf/cyclops-monorepo, github.com/czbiohub-sf/ops-paper-analysis.
 
-## Staged data (`scripts/fetch_altair.py`, features only, no images)
+## Pipeline
 
-- `v2.0.20260724/atlas/cell_features/all_cells_fluor_<marker>.h5ad`: 59 markers, per-cell hand-crafted features (`op_*` OrganelleProfiler, `cp_single_object_*` CellProfiler-style), ~1k features each.
-- `v2.0.20260724/atlas/cell_features/all_cells_phase.h5ad`: 64.6M cells x 3,317, 870 GB, all screens pooled. Subsample before handing out.
-- `v1.0.20260521/atlas/cell_features/all_cells_phase.h5ad`: 8.4M-cell phase subset, 62 GB.
-- `obs` carries `gene`, `sgRNA`, `barcode`, `experiment`, `well`, `segmentation_id`.
-- `processed/phase_v2_n1000_per_sgRNA.h5ad` (`scripts/subsample_phase.py`, seed 0): 4,208,364 x 3,317, 56.7 GB. 4,211 sgRNAs (4,208 at the 1,000 cap, min 52), 1,001 genes incl. NTC, all 88 screens.
-- Also staged: gene-level `aggregated_data.h5ad`, CROP-seq, and per-screen `cell_data.parquet` (cell index only: well, x/y, barcode, perturbation, bbox) + metadata + plate `zarr.json`.
+1. `scripts/fetch_altair.py`: mirror the per-cell feature h5ads (59 markers + phase, 1.38 TB), atlas tables, CROP-seq and per-screen metadata. No images.
+2. `scripts/build_altair.py phase|marker`: per screen, |x| > 1e20 to NaN, shared obs columns + mantispy schema, flag-only QC (`qc_pass`), mantispy robust z vs that screen's NTC cells passing QC. Writes cells_n1000/cells_n100 (hash-ranked per guide), guide_x_screen and guide (median of per-screen medians). Selection = mantispy defaults + drop_outliers(500) on cells_n100 passing QC. Resumable: per-screen checkpoints in `tiers/_ckpt_<name>/`.
+3. `scripts/unexpressed_genes.py`: the 96 target genes A549 doesn't express (HPA 25.1), the de facto cutting control.
+4. `scripts/final_check.py`: shapes, sizes, max |z| of selected features, mantispy validation, `markers.csv`, SHA-256.
+5. `notebooks/make_starter.py` writes `notebooks/01_starter.ipynb`.
+
+mantispy is pinned at commit 3552713 (with the `map` extra) in one shared cluster venv; don't let parallel jobs install it.
 
 ## Rules
 
