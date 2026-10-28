@@ -39,7 +39,7 @@ shasum -a 256 -c <<EOF
 EOF
 ```
 
-The other files are at the same URL, e.g. `$URL/er_golgi_cop-ii_sec23a_cells_n100.h5ad`, and `manifest.csv` lists the SHA-256 of every file. All h5ad files are gzip-compressed, and anndata reads them as they are. To put the `phase_cells_n1000` parts back together:
+The other files are at the same URL, e.g. `$URL/er_golgi_cop-ii_sec23a_cells_n100.h5ad`, and `manifest.csv` lists the SHA-256 of every file. All h5ad files are gzip-compressed, and anndata reads them as they are. Download with curl, wget, requests or pooch, because the CDN blocks Python's default urllib user agent. To put the `phase_cells_n1000` parts back together:
 
 ```python
 import anndata as ad, pandas as pd

@@ -16,6 +16,7 @@ Marker mode keeps only the marker's own features and appends the selected phase 
 """
 
 import argparse
+import re
 import time
 from pathlib import Path
 
@@ -135,7 +136,8 @@ def rss_gb() -> float:
 def build(kind: str, src: str, outdir: Path, abs_max: float, phase: str | None, phase_selected: str | None, max_screens: int | None, max_rss_gb: float | None) -> None:
     t0 = time.time()
     outdir.mkdir(parents=True, exist_ok=True)
-    name = "phase" if kind == "phase" else Path(src).stem.removeprefix("all_cells_fluor_")
+    # Only [A-Za-z0-9._-] in file names: the CDN reads "+" in a URL as a space (fe2+_ferhonox -> fe2_ferhonox).
+    name = "phase" if kind == "phase" else re.sub(r"[^A-Za-z0-9._-]", "", Path(src).stem.removeprefix("all_cells_fluor_"))
     f = h5py.File(src, "r")
     obs, var = read_obs(f), read_elem(f["var"])
     rank = tier_rank(obs)
