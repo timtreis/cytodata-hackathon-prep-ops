@@ -44,7 +44,7 @@ rows, markers = [], {}
 for p in files:
     a = ad.read_h5ad(p, backed="r")
     sel = a.var["selected"].to_numpy(dtype=bool)
-    ok = a.obs["qc_pass"].to_numpy(dtype=bool) if "qc_pass" in a.obs else None
+    ok = ~a.obs["qc_fail"].to_numpy(dtype=bool) if "qc_fail" in a.obs else None
     mt.io.validate(a.to_memory() if a.n_obs < 50_000 else a[:5000].to_memory())
     rows.append(
         {
