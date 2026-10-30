@@ -31,9 +31,9 @@ Most analyses only need the guide-level files. Start with `phase_guide.h5ad` and
 URL=https://exampledata.scverse.org/sbi2-cytodata/ops
 for f in phase_guide.h5ad phase_guide_x_screen.h5ad phase_cells_n100.h5ad screen_map.csv unexpressed_genes.csv; do curl -O $URL/$f; done
 shasum -a 256 -c <<EOF
-8cffb86078d6ed9839821b9176c4ef744f1b9b35386b7710794e607188d7b985  phase_guide.h5ad
-3f1ae51ff5958b62c16c539160ae0cc5f51c91b5445659cfdf1dc6142f36e976  phase_guide_x_screen.h5ad
-0db0b620ef927c56e8b1293c02b443abd19974eb4518d0f0c89da8005339dec1  phase_cells_n100.h5ad
+9cf51ab18ac710e88583a2e4ccdae5e28aa367834eb28a2d983bbd81cbf9839f  phase_guide.h5ad
+56b295abe4c57a5f2668ed369965a2ad694272232b0126c4da809bfa53386b48  phase_guide_x_screen.h5ad
+32f0f289d95acdc7ba44fc90cd0cda1621a37b8b610d1b7cf8eb5ee1861375dd  phase_cells_n100.h5ad
 9dbd0486fbb685403ec26eff87dc12bb06e7ac773a2a0428ad3ff3482ad3d509  screen_map.csv
 7ca185b0bc4b6f4c0f50f517846e9bd783ca0f61ad19fde04ac6ea4367b16acc  unexpressed_genes.csv
 EOF
@@ -55,7 +55,7 @@ from anndata.io import read_elem
 guides = ad.read_h5ad("phase_guide.h5ad")
 with h5py.File("phase_cells_n100.h5ad") as f:  # backed mode would load layers["raw"], 5.5 GB
     obs, var = read_elem(f["obs"]), read_elem(f["var"])
-    rows, cols = obs["qc_pass"].values, np.flatnonzero(var["selected"].values)
+    rows, cols = ~obs["qc_fail"].values, np.flatnonzero(var["selected"].values)
     X = np.vstack([f["X"][i : i + 10_000][rows[i : i + 10_000]][:, cols] for i in range(0, len(obs), 10_000)])
 cells = ad.AnnData(X, obs=obs[rows], var=var.iloc[cols])  # about 0.5 GB
 ```
@@ -69,9 +69,9 @@ The cell files keep every sampled cell except the ones listed under Known issues
 - `target_gene` (`NTC` for non-targeting guides), `guide` (the 20 nt guide sequence) and `batch` (the screen)
 - the cell key (`experiment`, `well`, `tile_pheno`, `segmentation_id`), which identifies a cell uniquely and joins a marker file to the phase file
 - the QC flags, which are true for cells with a problem: `qc_high_nan` (more than half of the features missing), `qc_tile_duplicate` (the same cell on two neighboring tiles, often with two different guide calls) and mantispy's `qc_area_outlier`
-- `qc_pass`, which is true when none of the QC flags is set, so `mantispy.pp.filter_cells` works on the files directly
+- `qc_fail`, which is true when any of the QC flags is set, so `mantispy.pp.filter_cells` (mantispy 0.1.0a2 or newer) works on the files directly
 
-We processed the files with [mantispy](https://github.com/scverse/mantispy) at commit `3552713`. Values above 1e20 in absolute size are float overflow in Biohub's Hu moment features, and we set them to missing. `X` holds robust z-scores against the non-targeting cells of the same screen, and the raw values are in `layers["raw"]`. `var["selected"]` marks the features that mantispy's default feature selection keeps, with its outlier filter added (no cell above 500 in absolute z-score among the up to 100 cells per guide). The guide-level files use the same features and the same `selected` column. Clip the z-scores, e.g. to 50 in absolute value, before you use distance-based methods, because a few rare cells have features whose spread among the non-targeting cells is close to zero. The marker files hold normalized values only, and you can get the raw values from Biohub's bucket with the cell key. `qc_pass` reflects the features of each file, so the same cell can pass in the phase file and fail in a marker file, and you should join files on the cell key and not on `qc_pass`.
+We processed the files with [mantispy](https://github.com/scverse/mantispy) at commit `3552713` and renamed its QC column to `qc_fail` for mantispy 0.1.0a2, which you need to run the starter notebook (`pip install "mantispy[map]>=0.1.0a2"`). Values above 1e20 in absolute size are float overflow in Biohub's Hu moment features, and we set them to missing. `X` holds robust z-scores against the non-targeting cells of the same screen, and the raw values are in `layers["raw"]`. `var["selected"]` marks the features that mantispy's default feature selection keeps, with its outlier filter added (no cell above 500 in absolute z-score among the up to 100 cells per guide). The guide-level files use the same features and the same `selected` column. Clip the z-scores, e.g. to 50 in absolute value, before you use distance-based methods, because a few rare cells have features whose spread among the non-targeting cells is close to zero. The marker files hold normalized values only, and you can get the raw values from Biohub's bucket with the cell key. `qc_fail` reflects the features of each file, so the same cell can pass in the phase file and fail in a marker file, and you should join files on the cell key and not on `qc_fail`.
 
 ## Embeddings and the CROP-seq data
 
@@ -84,7 +84,7 @@ Biohub's gene embeddings and a CROP-seq (single-cell RNA) screen of the same lib
 - The library has no cutting control, so every targeting guide cuts the DNA and the non-targeting guides don't, and the DNA damage from the cut alone can make a knockout separate from `NTC`. In phase, 99.9% of the knockouts separate from `NTC`, but 75% separate from the cutting control described next. 96 of the 1,000 target genes aren't detected in A549 by the Human Protein Atlas (nTPM below 1, listed in `unexpressed_genes.csv`, e.g. CA7, CCR2, CD5 and CDH15), and you can use their knockouts as a cutting control instead of `NTC`, leaving out the 22 genes with `multicopy` true, because their guides match many near-identical copies of the gene and cut the DNA more often.
 - Screen `ops0174_20260702` (`Biohub_OPS0088`, a Cell Painting screen) has no phase files, because 2,549 of the 3,317 phase features are missing for all its cells in Biohub's table. Its Cell Painting marker files are shipped, and the phase columns appended to them are missing (NaN) for its cells.
 - We left out 165,668 cells (0.26%) that Biohub couldn't place on a well or an imaging tile, 111,282 in `ops0094_20251217`, 54,382 in `ops0174_20260702` (the two Cell Painting screens) and 4 in other screens. They are kept in Biohub's source files, which you can join on `obs_names`.
-- Biohub's phase table has 97,371 rows (0.15%) that share a screen, well and `segmentation_id` with another row. In the pairs we checked, the two rows sit on neighboring tiles of the same well, so they look like one cell that was segmented twice where the tiles overlap. In 49.6% of these groups the rows carry different guides, e.g. `segmentation_id` 2049460 in well A/1 of `ops0031_20250424` has guide `GGGTTCGAGTGGTCTCAAGT` on tile `A/1/024005` and guide `GCCGAAGGAGTACCTACCGT` on tile `A/1/023005`. We set `qc_tile_duplicate` on all of these rows, which makes `qc_pass` false, so they stay in the cell files but are left out of the normalization and the guide-level files.
+- Biohub's phase table has 97,371 rows (0.15%) that share a screen, well and `segmentation_id` with another row. In the pairs we checked, the two rows sit on neighboring tiles of the same well, so they look like one cell that was segmented twice where the tiles overlap. In 49.6% of these groups the rows carry different guides, e.g. `segmentation_id` 2049460 in well A/1 of `ops0031_20250424` has guide `GGGTTCGAGTGGTCTCAAGT` on tile `A/1/024005` and guide `GCCGAAGGAGTACCTACCGT` on tile `A/1/023005`. We set `qc_tile_duplicate` on all of these rows, which makes `qc_fail` true, so they stay in the cell files but are left out of the normalization and the guide-level files.
 
 ## Reproduce the files
 

@@ -15,12 +15,12 @@ Data prep for the CytoData hackathon at SBI2 (Nov 1-2 2026): Biohub's "Altair - 
 ## Pipeline
 
 1. `scripts/fetch_altair.py`: mirror the per-cell feature h5ads (59 markers + phase, 1.38 TB), atlas tables, CROP-seq and per-screen metadata. No images.
-2. `scripts/build_altair.py phase|marker`: per screen, |x| > 1e20 to NaN, shared obs columns + mantispy schema, flag-only QC (`qc_pass`), mantispy robust z vs that screen's NTC cells passing QC. Writes cells_n1000/cells_n100 (hash-ranked per guide), guide_x_screen and guide (median of per-screen medians). Selection = mantispy defaults + drop_outliers(500) on cells_n100 passing QC. Resumable: per-screen checkpoints in `tiers/_ckpt_<name>/`.
+2. `scripts/build_altair.py phase|marker`: per screen, |x| > 1e20 to NaN, shared obs columns + mantispy schema, flag-only QC (`qc_fail`, True = problem), mantispy robust z vs that screen's NTC cells passing QC. Writes cells_n1000/cells_n100 (hash-ranked per guide), guide_x_screen and guide (median of per-screen medians). Selection = mantispy defaults + drop_outliers(500) on cells_n100 passing QC. Resumable: per-screen checkpoints in `tiers/_ckpt_<name>/`.
 3. `scripts/unexpressed_genes.py`: the 96 target genes A549 doesn't express (HPA 25.1), the de facto cutting control.
 4. `scripts/final_check.py`: shapes, sizes, max |z| of selected features, mantispy validation, `markers.csv`, SHA-256.
 5. `notebooks/make_starter.py` writes `notebooks/01_starter.ipynb`.
 
-mantispy is pinned at commit 3552713 (with the `map` extra) in one shared cluster venv; don't let parallel jobs install it.
+The data was built with mantispy commit 3552713; the build script and notebook now target mantispy >= 0.1.0a2 (qc_fail, public DEFAULT_OPERATIONS, tl.map n_jobs). Use one shared, freshly created cluster venv; never reinstall a venv in place or let parallel jobs install.
 
 ## Rules
 

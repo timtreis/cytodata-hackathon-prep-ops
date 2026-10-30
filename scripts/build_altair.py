@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 import mantispy as mt
-from mantispy.pp._select import DEFAULT_OPERATIONS  # not exported publicly; needed to extend the defaults
+from mantispy.pp import DEFAULT_OPERATIONS
 
 try:
     from anndata.io import read_elem
@@ -96,13 +96,13 @@ def to_mantispy(X: np.ndarray, obs: pd.DataFrame, var: pd.DataFrame, abs_max: fl
         a.var[col] = a.var[col].astype("category")  # an all-NaN object column (marker subsets) can't be written to h5ad
     mt.pp.annotate_controls(a, negcon=["NTC"], perturbation_key="Metadata_Gene")
     mt.pp.calculate_qc_metrics(a, max_nan_fraction=NAN_FLAG)
-    # Our flags are bool, True = problem; mantispy's qc_pass (True = good) is the one combined flag, so
-    # mt.pp.filter_cells works on the shipped files. mantispy's qc_pass already covers NaN share and area outliers.
+    # Every qc_* flag is True for a problem; mantispy's qc_fail is their union and what mt.pp.filter_cells reads.
+    # mantispy's own qc_fail already covers the NaN share and area outliers.
     a.obs["qc_high_nan"] = (a.obs["qc_nan_fraction"] > NAN_FLAG).to_numpy()
     # The same segmentation_id on adjacent tiles: one cell counted twice, often with conflicting guide calls.
     a.obs["qc_tile_duplicate"] = obs.duplicated(["well", "segmentation_id"], keep=False).to_numpy()
-    a.obs["qc_pass"] = a.obs["qc_pass"] & ~a.obs["qc_high_nan"] & ~a.obs["qc_area_outlier"] & ~a.obs["qc_tile_duplicate"]
-    a.obs["norm_reference"] = (a.obs["Metadata_Control_Type"] == "negcon") & a.obs["qc_pass"]
+    a.obs["qc_fail"] = a.obs["qc_fail"] | a.obs["qc_high_nan"] | a.obs["qc_area_outlier"] | a.obs["qc_tile_duplicate"]
+    a.obs["norm_reference"] = (a.obs["Metadata_Control_Type"] == "negcon") & ~a.obs["qc_fail"]
     if not a.obs["norm_reference"].any():
         raise NoReference(f"{obs['experiment'].iloc[0]}: no NTC cell passes QC (median NaN share {np.isnan(clean).mean(1).mean():.2f})")
     mt.pp.normalize(a, method="mad_robustize", by="Metadata_Plate", reference="norm_reference")
@@ -178,7 +178,7 @@ def build(kind: str, src: str, outdir: Path, abs_max: float, phase: str | None, 
             print(f"{name} {screen}: excluded, {e}", flush=True)
             continue
         own_cols = slice(None) if kind == "phase" else np.flatnonzero(own)
-        gx = mt.tl.aggregate(a[a.obs["qc_pass"].to_numpy(), own_cols], by=("Metadata_Plate", "Metadata_sgRNA"), min_cells=1)
+        gx = mt.tl.aggregate(a[~a.obs["qc_fail"].to_numpy(), own_cols], by=("Metadata_Plate", "Metadata_sgRNA"), min_cells=1)
         rows = np.flatnonzero(np.isin(idx, keep))
         # copy: a view would keep this screen's whole object alive through part.obs (OOM after ~30 screens)
         part, raw = a[rows].copy(), X[rows].astype(np.float32)
@@ -246,7 +246,7 @@ def build(kind: str, src: str, outdir: Path, abs_max: float, phase: str | None, 
     guide.obs["n_screens"] = gx.obs.groupby("Metadata_sgRNA", observed=True).size().reindex(guide.obs["Metadata_sgRNA"]).to_numpy()
     gx.obs["batch"] = gx.obs["Metadata_Plate"]
     guide.var = own_var.loc[guide.var_names]
-    selected, counts = select_on_cells(big[(big.obs["tier_rank"] < TIERS["cells_n100"]).to_numpy() & big.obs["qc_pass"].to_numpy(), :n_own].copy())
+    selected, counts = select_on_cells(big[(big.obs["tier_rank"] < TIERS["cells_n100"]).to_numpy() & ~big.obs["qc_fail"].to_numpy(), :n_own].copy())
     # Marker files' appended phase columns are the phase selection already.
     big.var["selected"] = selected.reindex(big.var_names).fillna(big.var["modality"].eq("phase") & (kind == "marker")).astype(bool).to_numpy()
     big.uns["mantispy"]["feature_select"] = counts

@@ -6,7 +6,7 @@ from pathlib import Path
 CELLS = [
     ("md", """# Altair optical pooled screen: starter notebook
 
-This notebook downloads the guide-level phase profiles and up to 100 cells per guide, scores how well each knockout separates from the non-targeting controls with mantispy, draws a map of the knockouts, and joins Biohub's CROP-seq embedding by guide sequence. It runs on a laptop in a few minutes and needs about 4 GB of memory."""),
+This notebook downloads the guide-level phase profiles and up to 100 cells per guide, scores how well each knockout separates from the non-targeting controls with mantispy, draws a map of the knockouts, and joins Biohub's CROP-seq embedding by guide sequence. It runs on a laptop in a few minutes and needs about 4 GB of memory and mantispy 0.1.0a2 or newer (`pip install \"mantispy[map]>=0.1.0a2\"`)."""),
     ("code", """import os
 import time
 from pathlib import Path
@@ -23,12 +23,12 @@ DATA = Path(os.environ.get("ALTAIR_DATA", "data"))
 URL = "https://exampledata.scverse.org/sbi2-cytodata/ops"
 # SHA-256 from manifest.csv; pooch downloads each file once and checks it.
 FILES = {
-    "phase_guide.h5ad": "8cffb86078d6ed9839821b9176c4ef744f1b9b35386b7710794e607188d7b985",
-    "phase_guide_x_screen.h5ad": "3f1ae51ff5958b62c16c539160ae0cc5f51c91b5445659cfdf1dc6142f36e976",
-    "phase_cells_n100.h5ad": "0db0b620ef927c56e8b1293c02b443abd19974eb4518d0f0c89da8005339dec1",
+    "phase_guide.h5ad": "9cf51ab18ac710e88583a2e4ccdae5e28aa367834eb28a2d983bbd81cbf9839f",
+    "phase_guide_x_screen.h5ad": "56b295abe4c57a5f2668ed369965a2ad694272232b0126c4da809bfa53386b48",
+    "phase_cells_n100.h5ad": "32f0f289d95acdc7ba44fc90cd0cda1621a37b8b610d1b7cf8eb5ee1861375dd",
     "screen_map.csv": "9dbd0486fbb685403ec26eff87dc12bb06e7ac773a2a0428ad3ff3482ad3d509",
     "unexpressed_genes.csv": "7ca185b0bc4b6f4c0f50f517846e9bd783ca0f61ad19fde04ac6ea4367b16acc",
-    "markers_guide.zip": "3dd193c7c24890cdddc56036f24c55ade987e7069fd7ff3890ed84f02486fcd9",
+    "markers_guide.zip": "8a7257138d26c2dfec7414c17ef9f3fee27f64e6b1f7178a957ea78c24311930",
 }
 for f, sha in FILES.items():
     pooch.retrieve(f"{URL}/{f}", known_hash=f"sha256:{sha}", fname=f, path=DATA, progressbar=False)
@@ -51,8 +51,8 @@ cutting_control = set(unexpressed.query("not multicopy")["gene"])
 guides.obs["Metadata_Plate"] = "all"
 guides.obs["cutting_control"] = guides.obs["target_gene"].isin(cutting_control).values
 t = time.time()
-mt.tl.map(guides, mode="activity", label="Metadata_Gene", batch="Metadata_Plate", reference="negcon", null_size=20_000, key_added="map_ntc")
-mt.tl.map(guides, mode="activity", label="Metadata_Gene", batch="Metadata_Plate", reference="cutting_control", null_size=20_000, key_added="map_cut")
+mt.tl.map(guides, mode="activity", label="Metadata_Gene", batch="Metadata_Plate", reference="negcon", null_size=20_000, n_jobs=4, key_added="map_ntc")
+mt.tl.map(guides, mode="activity", label="Metadata_Gene", batch="Metadata_Plate", reference="cutting_control", null_size=20_000, n_jobs=4, key_added="map_cut")
 vs_ntc, activity = guides.uns["mantispy"]["map_ntc"], guides.uns["mantispy"]["map_cut"]
 activity = activity[~activity["Metadata_Gene"].isin(cutting_control | {"NTC"})]
 print(f"{time.time() - t:.0f} s")
@@ -82,7 +82,7 @@ from anndata.io import read_elem
 # layers["raw"] (about 5.5 GB) into memory even though we never use it.
 with h5py.File(DATA / "phase_cells_n100.h5ad", "r") as f:
     obs, var = read_elem(f["obs"]), read_elem(f["var"])
-    keep_cells = obs["qc_pass"].values
+    keep_cells = ~obs["qc_fail"].values
     keep_features = np.flatnonzero(var["selected"].values)
     blocks = [f["X"][lo : lo + 10_000][keep_cells[lo : lo + 10_000]][:, keep_features] for lo in range(0, len(obs), 10_000)]
 cells = ad.AnnData(np.clip(np.nan_to_num(np.vstack(blocks)), -50, 50), obs=obs[keep_cells], var=var.iloc[keep_features])
@@ -142,7 +142,7 @@ marker = marker[:, marker.var["selected"].values].copy()
 marker.X = np.clip(np.nan_to_num(marker.X), -50, 50)
 marker.obs["Metadata_Plate"] = "all"
 marker.obs["cutting_control"] = marker.obs["target_gene"].isin(cutting_control).values
-mt.tl.map(marker, mode="activity", label="Metadata_Gene", batch="Metadata_Plate", reference="cutting_control", null_size=20_000)
+mt.tl.map(marker, mode="activity", label="Metadata_Gene", batch="Metadata_Plate", reference="cutting_control", null_size=20_000, n_jobs=4)
 marker_map = marker.uns["mantispy"]["map"]
 marker_hits = set(marker_map[~marker_map["Metadata_Gene"].isin(cutting_control | {"NTC"})].query("is_significant")["Metadata_Gene"])
 phase_hits = set(activity.query("is_significant")["Metadata_Gene"])
